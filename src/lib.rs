@@ -1,3 +1,7 @@
+#![no_std]
+
+mod padding;
+
 pub mod petrel {
     #[derive(Clone)]
     struct SHA1State(u32, u32, u32, u32, u32);
@@ -215,50 +219,5 @@ pub mod petrel {
         pub fn finalize(self) -> [u8; 20] {
             self.padder.finalize().to_bytes()
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    fn digest_to_hex(digest: [u8; 20]) -> String {
-        digest
-            .iter()
-            .map(|byte| format!("{:02x}", byte))
-            .collect::<Vec<String>>()
-            .join("")
-    }
-    #[test]
-    fn name() {
-        let digest = crate::petrel::SHA1Digest::new();
-        let bytes = digest.finalize();
-
-        assert_eq!(
-            "da39a3ee5e6b4b0d3255bfef95601890afd80709",
-            digest_to_hex(bytes)
-        );
-    }
-
-    #[test]
-    fn a() {
-        let mut digest = crate::petrel::SHA1Digest::new();
-        digest.update("a".as_bytes());
-        let bytes = digest.finalize();
-
-        assert_eq!(
-            "86f7e437faa5a7fce15d1ddcb9eaeaea377667b8",
-            digest_to_hex(bytes)
-        );
-    }
-
-    #[test]
-    fn iggy() {
-        let mut digest = crate::petrel::SHA1Digest::new();
-        digest.update("iggy".as_bytes());
-        let bytes = digest.finalize();
-
-        assert_eq!(
-            "4ac1ec3395de7d5e379ab05534dd7d4ab789b892",
-            digest_to_hex(bytes)
-        );
     }
 }
