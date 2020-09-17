@@ -59,7 +59,7 @@ macro_rules! padding_enum_impl {
 
 macro_rules! block_consumer_trait {
     ($name:ident, $block_bytes:literal) => {
-        trait $name<R> {
+        pub trait $name<R> {
             fn handle(&mut self, block: &[u8; $block_bytes]);
             fn finalize(self) -> R;
             fn finalize_reset(&mut self) -> R;
@@ -69,7 +69,7 @@ macro_rules! block_consumer_trait {
 
 macro_rules! streaming_padder_impl {
     ($name:ident, $block_bytes:literal, $bc_trait:ident, $counter_type:ty, $padding_type:ty) => {
-        struct $name<R, BC: $bc_trait<R>> {
+        pub struct $name<R, BC: $bc_trait<R>> {
             buffer: [u8; $block_bytes],
             len: $counter_type,
             consumer: BC,
@@ -77,7 +77,7 @@ macro_rules! streaming_padder_impl {
         }
 
         impl<R, BC: $bc_trait<R>> $name<R, BC> {
-            fn new(consumer: BC) -> Self {
+            pub fn new(consumer: BC) -> Self {
                 Self {
                     buffer: [0u8; $block_bytes],
                     len: 0 as $counter_type,
@@ -86,7 +86,7 @@ macro_rules! streaming_padder_impl {
                 }
             }
 
-            fn feed(&mut self, bytes: &[u8]) {
+            pub fn feed(&mut self, bytes: &[u8]) {
                 let buffer_len = (self.len & ($block_bytes - 1)) as usize;
 
                 if buffer_len + bytes.len() < $block_bytes {
@@ -113,12 +113,12 @@ macro_rules! streaming_padder_impl {
                 self.len += bytes.len() as $counter_type;
             }
 
-            fn finalize(mut self) -> R {
+            pub fn finalize(mut self) -> R {
                 self.handle_final_blocks();
                 self.consumer.finalize()
             }
 
-            fn finalize_reset(&mut self) -> R {
+            pub fn finalize_reset(&mut self) -> R {
                 self.handle_final_blocks();
                 self.consumer.finalize_reset()
             }
@@ -137,7 +137,7 @@ macro_rules! streaming_padder_impl {
 
 macro_rules! padding_fn {
     ($name:ident, $block_bytes:literal, $bc_trait:ident, $counter_type:ty, $padding_type:ty) => {
-        fn $name<R, BC: $bc_trait<R>>(consumer: &mut BC, bytes: &[u8]) {
+        pub fn $name<R, BC: $bc_trait<R>>(consumer: &mut BC, bytes: &[u8]) {
             let mut buffer = [0u8; $block_bytes];
 
             for block_start in (1..)
