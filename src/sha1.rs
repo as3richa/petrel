@@ -1,10 +1,12 @@
-mod padding;
+use crate::padding;
 
 #[derive(Clone)]
 struct SHA1State(u32, u32, u32, u32, u32);
 
-impl SHA1State {
-    fn new() -> SHA1State {
+type SHA1Function = fn(u32, u32, u32) -> u32;
+
+impl Default for SHA1State {
+    fn default() -> SHA1State {
         let h0 = 0x67452301u32;
         let h1 = 0xefcdab89u32;
         let h2 = 0x98badcfeu32;
@@ -12,8 +14,11 @@ impl SHA1State {
         let h4 = 0xc3d2e1f0u32;
         SHA1State(h0, h1, h2, h3, h4)
     }
+}
 
-    fn step(&self, f: fn(u32, u32, u32) -> u32, k: u32, w: u32) -> SHA1State {
+#[allow(clippy::many_single_char_names)]
+impl SHA1State {
+    fn step(&self, f: SHA1Function, k: u32, w: u32) -> SHA1State {
         match *self {
             SHA1State(a, b, c, d, e) => {
                 let t = a
@@ -28,15 +33,15 @@ impl SHA1State {
     }
 
     fn merge(&self, other: &SHA1State) -> SHA1State {
-        match (self, other) {
-            (SHA1State(a, b, c, d, e), SHA1State(a_o, b_o, c_o, d_o, e_o)) => SHA1State(
-                a.wrapping_add(*a_o),
-                b.wrapping_add(*b_o),
-                c.wrapping_add(*c_o),
-                d.wrapping_add(*d_o),
-                e.wrapping_add(*e_o),
-            ),
-        }
+        let SHA1State(a, b, c, d, e) = self;
+        let SHA1State(a_o, b_o, c_o, d_o, e_o) = other;
+        SHA1State(
+            a.wrapping_add(*a_o),
+            b.wrapping_add(*b_o),
+            c.wrapping_add(*c_o),
+            d.wrapping_add(*d_o),
+            e.wrapping_add(*e_o),
+        )
     }
 
     fn to_bytes(&self) -> [u8; 20] {
@@ -61,9 +66,9 @@ impl SHA1ScheduleIterator {
     fn new(block: &[u8; 64]) -> SHA1ScheduleIterator {
         let mut w = [0u32; 80];
 
-        for i in 0..16 {
+        for (i, w) in w[0..16].iter_mut().enumerate() {
             let base = 4 * i;
-            w[i] = u32::from_be_bytes([
+            *w = u32::from_be_bytes([
                 block[base],
                 block[base + 1],
                 block[base + 2],
@@ -75,7 +80,7 @@ impl SHA1ScheduleIterator {
             w[i] = (w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16]).rotate_left(1);
         }
 
-        SHA1ScheduleIterator { w: w, t: 0 }
+        SHA1ScheduleIterator { w, t: 0 }
     }
 
     fn ch(x: u32, y: u32, z: u32) -> u32 {
@@ -92,30 +97,18 @@ impl SHA1ScheduleIterator {
 }
 
 impl Iterator for SHA1ScheduleIterator {
-    type Item = (fn(u32, u32, u32) -> u32, u32, u32);
+    type Item = (SHA1Function, u32, u32);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.t < 80 {
             let (f, k) = if self.t < 20 {
-                (
-                    SHA1ScheduleIterator::ch as fn(u32, u32, u32) -> u32,
-                    0x5a827999u32,
-                )
+                (SHA1ScheduleIterator::ch as SHA1Function, 0x5a827999u32)
             } else if self.t < 40 {
-                (
-                    SHA1ScheduleIterator::parity as fn(u32, u32, u32) -> u32,
-                    0x6ed9eba1u32,
-                )
+                (SHA1ScheduleIterator::parity as SHA1Function, 0x6ed9eba1u32)
             } else if self.t < 60 {
-                (
-                    SHA1ScheduleIterator::maj as fn(u32, u32, u32) -> u32,
-                    0x8f1bbcdcu32,
-                )
+                (SHA1ScheduleIterator::maj as SHA1Function, 0x8f1bbcdcu32)
             } else {
-                (
-                    SHA1ScheduleIterator::parity as fn(u32, u32, u32) -> u32,
-                    0xca62c1d6u32,
-                )
+                (SHA1ScheduleIterator::parity as SHA1Function, 0xca62c1d6u32)
             };
             let w = self.w[self.t];
             self.t += 1;
@@ -128,7 +121,8 @@ impl Iterator for SHA1ScheduleIterator {
 
 impl padding::BlockConsumer512<[u8; 20]> for SHA1State {
     fn handle(&mut self, block: &[u8; 64]) {
-        let step = SHA1ScheduleIterator::new(block).fold(self.clone(), |state, (f, k, w)| state.step(f, k, w));
+        let step = SHA1ScheduleIterator::new(block)
+            .fold(self.clone(), |state, (f, k, w)| state.step(f, k, w));
         *self = self.merge(&step);
     }
 
@@ -138,7 +132,7 @@ impl padding::BlockConsumer512<[u8; 20]> for SHA1State {
 
     fn finalize_reset(&mut self) -> [u8; 20] {
         let bytes = self.to_bytes();
-        *self = SHA1State::new();
+        *self = SHA1State::default();
         bytes
     }
 }
@@ -147,15 +141,17 @@ pub struct SHA1Digest {
     padder: padding::StreamingPadder512<[u8; 20], SHA1State>,
 }
 
-impl SHA1Digest {
-    pub fn new() -> SHA1Digest {
+impl Default for SHA1Digest {
+    fn default() -> SHA1Digest {
         SHA1Digest {
-            padder: padding::StreamingPadder512::new(SHA1State::new())
+            padder: padding::StreamingPadder512::new(SHA1State::default()),
         }
     }
+}
 
+impl SHA1Digest {
     pub fn hash(bytes: impl AsRef<[u8]>) -> [u8; 20] {
-        let mut state = SHA1State::new();
+        let mut state = SHA1State::default();
         padding::pad_bytes_512(&mut state, bytes.as_ref());
         state.to_bytes()
     }

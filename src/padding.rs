@@ -16,7 +16,7 @@ macro_rules! padding_enum_impl {
                 block[0..buffer.len()].copy_from_slice(buffer);
                 block[buffer.len()] = 0x80u8;
 
-                if buffer.len() <= $block_bytes - (1 + $counter_bytes) {
+                if buffer.len() + 1 + $counter_bytes <= $block_bytes {
                     for (i, &x) in
                         (($block_bytes - $counter_bytes)..$block_bytes).zip(counter.iter())
                     {
@@ -31,20 +31,23 @@ macro_rules! padding_enum_impl {
             fn next(&mut self, buffer: &mut [u8; $block_bytes]) -> bool {
                 let (more, next) = match self {
                     $name::PenultimateBlock(mut block, counter) => {
-                        for (dest, src) in buffer.iter_mut().zip(block.iter()) {
-                            *dest = *src;
+                        for (dest, &src) in buffer.iter_mut().zip(block.iter()) {
+                            *dest = src;
                         }
-                        for i in 0..($block_bytes - $counter_bytes) {
-                            block[i] = 0;
+                        for b in block[0..$block_bytes - $counter_bytes].iter_mut() {
+                            *b = 0;
                         }
-                        for i in 0..($counter_bytes) {
-                            block[($block_bytes - $counter_bytes) + i] = counter[i];
+                        for (dest, &src) in block[$block_bytes - $counter_bytes..]
+                            .iter_mut()
+                            .zip(counter.iter())
+                        {
+                            *dest = src;
                         }
                         (true, $name::FinalBlock(block))
                     }
                     $name::FinalBlock(block) => {
-                        for (dest, src) in buffer.iter_mut().zip(block.iter()) {
-                            *dest = *src;
+                        for (dest, &src) in buffer.iter_mut().zip(block.iter()) {
+                            *dest = src;
                         }
                         (true, $name::Done)
                     }
@@ -81,7 +84,7 @@ macro_rules! streaming_padder_impl {
                 Self {
                     buffer: [0u8; $block_bytes],
                     len: 0 as $counter_type,
-                    consumer: consumer,
+                    consumer,
                     result_marker: PhantomData,
                 }
             }
@@ -97,7 +100,7 @@ macro_rules! streaming_padder_impl {
                     self.consumer.handle(&self.buffer);
 
                     let tail = &bytes[$block_bytes - buffer_len..];
-                    for block_start in (1..)
+                    for block_start in (0..)
                         .map(|i| $block_bytes * i)
                         .take_while(|i| i + $block_bytes <= tail.len())
                     {
@@ -120,12 +123,14 @@ macro_rules! streaming_padder_impl {
 
             pub fn finalize_reset(&mut self) -> R {
                 self.handle_final_blocks();
+                self.len = 0;
                 self.consumer.finalize_reset()
             }
 
             fn handle_final_blocks(&mut self) {
-                let buffer_len = self.len & ($block_bytes - 1);
-                let mut it = <$padding_type>::new(&self.buffer, self.len.to_be_bytes());
+                let buffer_len = (self.len & ($block_bytes - 1)) as usize;
+                let mut it =
+                    <$padding_type>::new(&self.buffer[0..buffer_len], (8 * self.len).to_be_bytes());
 
                 while it.next(&mut self.buffer) {
                     self.consumer.handle(&self.buffer);
@@ -140,7 +145,7 @@ macro_rules! padding_fn {
         pub fn $name<R, BC: $bc_trait<R>>(consumer: &mut BC, bytes: &[u8]) {
             let mut buffer = [0u8; $block_bytes];
 
-            for block_start in (1..)
+            for block_start in (0..)
                 .map(|i| i * $block_bytes)
                 .take_while(|i| i + $block_bytes <= bytes.len())
             {
@@ -150,7 +155,8 @@ macro_rules! padding_fn {
             }
 
             let tail = &bytes[bytes.len() - bytes.len() % $block_bytes..];
-            let mut it = <$padding_type>::new(tail, (bytes.len() as $counter_type).to_be_bytes());
+            let mut it =
+                <$padding_type>::new(tail, ((8 * bytes.len()) as $counter_type).to_be_bytes());
 
             while it.next(&mut buffer) {
                 consumer.handle(&buffer);
