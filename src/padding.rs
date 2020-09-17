@@ -1,225 +1,55 @@
-trait Counter {
-    fn new() -> Self;
-    fn from_usize(value: usize) -> Self;
-    fn increment(self, value: usize) -> Self;
-    fn bitwise_and(self, mask: usize) -> usize;
-}
-
-#[derive(Clone, Copy)]
-struct Counter64(u64);
-
-impl Counter for Counter64 {
-    fn new() -> Counter64 {
-        Counter64(0)
-    }
-
-    fn from_usize(value: usize) -> Counter64 {
-        Counter64(value as u64)
-    }
-
-    fn increment(self, value: usize) -> Counter64 {
-        Counter64(self.0 + (value as u64))
-    }
-
-    fn bitwise_and(self, mask: usize) -> usize {
-        (self.0 as usize) & mask
-    }
-}
-
-enum Padding512 {
-    FinalBlock([u8; 64]),
-    PaddingBlock([u8; 64], [u8; 8]),
-}
-
-impl Counter64 {
-    fn pad_final_block(self, buffer: &[u8]) -> Padding512 {
-        assert!(buffer.len() < 64);
-
-        let mut block = [0u8; 64];
-        block[0..buffer.len()].copy_from_slice(buffer);
-        block[buffer.len()] = 0x80u8;
-
-        if buffer.len() <= 55 {
-            for (i, &x) in (56..64).zip(self.0.to_be_bytes().iter()) {
-                block[i] = x;
-            }
-            Padding512::FinalBlock(block)
-        } else {
-            Padding512::PaddingBlock(block, self.0.to_be_bytes())
-        }
-    }
-}
-
-trait BlockIterator512 {
-    fn next(&mut self, block: &mut [u8; 64]) -> bool;
-}
-
-impl BlockIterator512 for Option<Padding512> {
-    fn next(&mut self, buffer: &mut [u8; 64]) -> bool {
-        let more = self.is_some();
-        *self = match self {
-            Some(Padding512::FinalBlock(block)) => {
-                for (dest, src) in buffer.iter_mut().zip(block.iter()) {
-                    *dest = *src;
-                }
-                None
-            }
-            Some(Padding512::PaddingBlock(mut block, counter_bytes)) => {
-                for (dest, src) in buffer.iter_mut().zip(block.iter()) {
-                    *dest = *src;
-                }
-                for i in 0..56 {
-                    block[i] = 0;
-                }
-                for i in 0..8 {
-                    block[56 + i] = counter_bytes[i];
-                }
-                Some(Padding512::FinalBlock(block))
-            }
-            None => None,
-        };
-        more
-    }
-}
-
-trait BlockConsumer512<R> {
-    fn handle(&mut self, block: &[u8; 64]);
-    fn finalize(self) -> R;
-    fn finalize_reset(&mut self) -> R;
-}
-
 use core::marker::PhantomData;
 
-struct StreamingPadder512<R, BC: BlockConsumer512<R>> {
-    buffer: [u8; 64],
-    len: Counter64,
-    consumer: BC,
-    result_marker: PhantomData<R>,
-}
-
-impl<R, BC: BlockConsumer512<R>> StreamingPadder512<R, BC> {
-    fn new(consumer: BC) -> Self {
-        Self {
-            buffer: [0u8; 64],
-            len: Counter64::new(),
-            consumer: consumer,
-            result_marker: PhantomData
-        }
-    }
-
-    fn feed(&mut self, bytes: &[u8]) {
-        let buffer_len = self.len.bitwise_and(64 - 1);
-
-        if buffer_len + bytes.len() < 64 {
-            self.buffer[buffer_len..buffer_len+bytes.len()].copy_from_slice(bytes);
-        } else {
-            self.buffer[buffer_len..64].copy_from_slice(&bytes[0..64-buffer_len]);
-            self.consumer.handle(&self.buffer);
-            
-            let tail = &bytes[64-buffer_len..];
-            for block_start in (1..).map(|i| 64 * i).take_while(|i| i < &tail.len()) {
-                self.buffer[0..64].copy_from_slice(&tail[block_start..block_start + 64]);
-                self.consumer.handle(&self.buffer);
-            }
-
-            self.buffer[0..tail.len() % 64].copy_from_slice(&tail[tail.len() - tail.len() % 64..]);
+macro_rules! padding_enum_impl {
+    ($name:ident, $block_bytes:literal, $counter_bytes:literal) => {
+        enum $name {
+            PenultimateBlock([u8; $block_bytes], [u8; $counter_bytes]),
+            FinalBlock([u8; $block_bytes]),
+            Done,
         }
 
-        self.len = self.len.increment(bytes.len());
-    }
+        impl $name {
+            fn new(buffer: &[u8], counter: [u8; $counter_bytes]) -> Self {
+                assert!(buffer.len() < $block_bytes);
 
-    fn finalize(mut self) -> R {
-        self.handle_final_blocks();
-        self.consumer.finalize()
-    }
+                let mut block = [0u8; $block_bytes];
+                block[0..buffer.len()].copy_from_slice(buffer);
+                block[buffer.len()] = 0x80u8;
 
-    fn finalize_reset(&mut self) -> R {
-        self.handle_final_blocks();
-        self.consumer.finalize_reset()
-    }
-
-    fn handle_final_blocks(&mut self) {
-        let buffer_len = self.len.bitwise_and(64 - 1);
-        let mut it = Some(self.len.pad_final_block(&self.buffer[0..buffer_len]));
-
-        while it.next(&mut self.buffer) {
-            self.consumer.handle(&self.buffer);
-        }
-    }
-}
-
-/*
-
-
-macro_rules! counter_trait {
-    ($name:ident, $bits:literal) => {
-        trait $name {
-            fn add(self, addend: usize) -> Self;
-            fn mask(self, mask: usize) -> usize;
-            fn to_bytes(self) -> [u8; $bits / 8];
-        }
-    };
-}
-
-counter_trait!(Counter64, 64);
-
-impl Counter64 for u64 {
-    fn add(self, addend: usize) -> u64 {
-        self + (addend as u64)
-    }
-
-    fn mask(self, mask: usize) -> usize {
-        (self as usize) & mask
-    }
-
-    fn to_bytes(self) -> [u8; 8] {
-        self.to_be_bytes()
-    }
-}
-
-macro_rules! block_iterator_impl {
-    ($name:ident, $bits:literal) => {
-        enum $name<'a> {
-            Prepend([u8; $bits / 8], usize, &'a [u8]),
-            Chunks(&'a [u8]),
-        }
-
-        impl<'a> $name<'a> {
-            fn prepend(prefix: &[u8], bytes: &'a [u8]) -> Self {
-                let mut buffer = [0u8; $bits / 8];
-                buffer[0..prefix.len()].copy_from_slice(prefix);
-                Self::Prepend(buffer, prefix.len(), bytes)
-            }
-
-            fn empty() -> Self {
-                Self::Chunks(&[])
-            }
-
-            fn next(&mut self, buffer: &mut [u8; $bits / 8]) -> bool {
-                use $name::{Chunks, Prepend};
-
-                let (more, next) = match *self {
-                    Prepend(prefix, len, bytes) => {
-                        if len + bytes.len() < $bits / 8 {
-                            (false, Prepend(prefix, len, bytes))
-                        } else {
-                            buffer[0..prefix.len()].copy_from_slice(&prefix[0..len]);
-                            buffer[prefix.len()..$bits / 8]
-                                .copy_from_slice(&bytes[0..$bits / 8 - prefix.len()]);
-                            (true, Chunks(&bytes[$bits / 8 - prefix.len()..]))
-                        }
+                if buffer.len() <= $block_bytes - (1 + $counter_bytes) {
+                    for (i, &x) in
+                        (($block_bytes - $counter_bytes)..$block_bytes).zip(counter.iter())
+                    {
+                        block[i] = x;
                     }
+                    $name::FinalBlock(block)
+                } else {
+                    $name::PenultimateBlock(block, counter)
+                }
+            }
 
-                    Chunks(bytes) => {
-                        if bytes.len() < $bits / 8 {
-                            (false, Chunks(bytes))
-                        } else {
-                            buffer[0..$bits / 8].copy_from_slice(&bytes[0..$bits / 8]);
-                            (true, Chunks(&bytes[$bits / 8..]))
+            fn next(&mut self, buffer: &mut [u8; $block_bytes]) -> bool {
+                let (more, next) = match self {
+                    $name::PenultimateBlock(mut block, counter) => {
+                        for (dest, src) in buffer.iter_mut().zip(block.iter()) {
+                            *dest = *src;
                         }
+                        for i in 0..($block_bytes - $counter_bytes) {
+                            block[i] = 0;
+                        }
+                        for i in 0..($counter_bytes) {
+                            block[($block_bytes - $counter_bytes) + i] = counter[i];
+                        }
+                        (true, $name::FinalBlock(block))
                     }
+                    $name::FinalBlock(block) => {
+                        for (dest, src) in buffer.iter_mut().zip(block.iter()) {
+                            *dest = *src;
+                        }
+                        (true, $name::Done)
+                    }
+                    $name::Done => (false, $name::Done),
                 };
-
                 *self = next;
                 more
             }
@@ -227,45 +57,120 @@ macro_rules! block_iterator_impl {
     };
 }
 
+macro_rules! block_consumer_trait {
+    ($name:ident, $block_bytes:literal) => {
+        trait $name<R> {
+            fn handle(&mut self, block: &[u8; $block_bytes]);
+            fn finalize(self) -> R;
+            fn finalize_reset(&mut self) -> R;
+        }
+    };
+}
+
 macro_rules! streaming_padder_impl {
-    ($name:ident, $bits:literal, $counter:ty, $block_iter:ident) => {
-        pub struct $name {
-            buffer: [u8; $bits / 8],
-            len: $counter,
+    ($name:ident, $block_bytes:literal, $bc_trait:ident, $counter_type:ty, $padding_type:ty) => {
+        struct $name<R, BC: $bc_trait<R>> {
+            buffer: [u8; $block_bytes],
+            len: $counter_type,
+            consumer: BC,
+            result_marker: PhantomData<R>,
         }
 
-        impl $name {
-            fn feed<'a>(&mut self, bytes: &'a [u8]) -> $block_iter<'a> {
-                let buffer_len = self.len.mask(($bits / 8) - 1);
+        impl<R, BC: $bc_trait<R>> $name<R, BC> {
+            fn new(consumer: BC) -> Self {
+                Self {
+                    buffer: [0u8; $block_bytes],
+                    len: 0 as $counter_type,
+                    consumer: consumer,
+                    result_marker: PhantomData,
+                }
+            }
 
-                let it = if buffer_len + bytes.len() < $bits / 8 {
+            fn feed(&mut self, bytes: &[u8]) {
+                let buffer_len = (self.len & ($block_bytes - 1)) as usize;
+
+                if buffer_len + bytes.len() < $block_bytes {
                     self.buffer[buffer_len..buffer_len + bytes.len()].copy_from_slice(bytes);
-                    <$block_iter>::empty()
                 } else {
-                    let it = <$block_iter>::prepend(&self.buffer[0..buffer_len], bytes);
-                    let tail_len = (buffer_len + bytes.len()) & (($bits / 8) - 1);
-                    self.buffer[0..tail_len].copy_from_slice(&bytes[bytes.len() - tail_len..]);
-                    it
-                };
+                    self.buffer[buffer_len..$block_bytes]
+                        .copy_from_slice(&bytes[0..$block_bytes - buffer_len]);
+                    self.consumer.handle(&self.buffer);
 
-                self.len.add(bytes.len());
-                it
+                    let tail = &bytes[$block_bytes - buffer_len..];
+                    for block_start in (1..)
+                        .map(|i| $block_bytes * i)
+                        .take_while(|i| i + $block_bytes <= tail.len())
+                    {
+                        self.buffer[0..$block_bytes]
+                            .copy_from_slice(&tail[block_start..block_start + $block_bytes]);
+                        self.consumer.handle(&self.buffer);
+                    }
+
+                    self.buffer[0..tail.len() % $block_bytes]
+                        .copy_from_slice(&tail[tail.len() - tail.len() % $block_bytes..]);
+                }
+
+                self.len += bytes.len() as $counter_type;
             }
 
-            fn chain<'a>(mut self, bytes: &'a [u8]) -> (Self, $block_iter<'a>) {
-                let it = self.feed(bytes);
-                (self, it)
+            fn finalize(mut self) -> R {
+                self.handle_final_blocks();
+                self.consumer.finalize()
             }
 
-            fn finalize(mut self) -> $block_iter {
+            fn finalize_reset(&mut self) -> R {
+                self.handle_final_blocks();
+                self.consumer.finalize_reset()
+            }
 
+            fn handle_final_blocks(&mut self) {
+                let buffer_len = self.len & ($block_bytes - 1);
+                let mut it = <$padding_type>::new(&self.buffer, self.len.to_be_bytes());
 
+                while it.next(&mut self.buffer) {
+                    self.consumer.handle(&self.buffer);
+                }
             }
         }
     };
 }
 
-block_iterator_impl!(BlockIterator512, 512);
-streaming_padder_impl!(StreamingPadder512, 512, u64, BlockIterator512);
+macro_rules! padding_fn {
+    ($name:ident, $block_bytes:literal, $bc_trait:ident, $counter_type:ty, $padding_type:ty) => {
+        fn $name<R, BC: $bc_trait<R>>(consumer: &mut BC, bytes: &[u8]) {
+            let mut buffer = [0u8; $block_bytes];
 
-*/
+            for block_start in (1..)
+                .map(|i| i * $block_bytes)
+                .take_while(|i| i + $block_bytes <= bytes.len())
+            {
+                buffer[0..$block_bytes]
+                    .copy_from_slice(&bytes[block_start..block_start + $block_bytes]);
+                consumer.handle(&buffer);
+            }
+
+            let tail = &bytes[bytes.len() - bytes.len() % $block_bytes..];
+            let mut it = <$padding_type>::new(tail, (bytes.len() as $counter_type).to_be_bytes());
+
+            while it.next(&mut buffer) {
+                consumer.handle(&buffer);
+            }
+        }
+    };
+}
+
+padding_enum_impl!(Padding512, 64, 8);
+block_consumer_trait!(BlockConsumer512, 64);
+streaming_padder_impl!(StreamingPadder512, 64, BlockConsumer512, u64, Padding512);
+padding_fn!(pad_bytes_512, 64, BlockConsumer512, u64, Padding512);
+
+padding_enum_impl!(Padding1024, 128, 16);
+block_consumer_trait!(BlockConsumer1024, 128);
+streaming_padder_impl!(
+    StreamingPadder1024,
+    128,
+    BlockConsumer1024,
+    u128,
+    Padding1024
+);
+padding_fn!(pad_bytes_1024, 128, BlockConsumer1024, u128, Padding1024);
