@@ -84,15 +84,15 @@ impl HashState<[u8; 32], (u32, u32)> for SHA256State {
 #[allow(clippy::many_single_char_names)]
 impl HashState<[u8; 28], (u32, u32)> for SHA256State {
     fn new() -> SHA256State {
-        let h0 = 0xc1059ed8u32;
-        let h1 = 0x367cd507u32;
-        let h2 = 0x3070dd17u32;
-        let h3 = 0xf70e5939u32;
-        let h4 = 0xffc00b31u32;
-        let h5 = 0x68581511u32;
-        let h6 = 0x64f98fa7u32;
-        let h7 = 0xbefa4fa4u32;
-        SHA256State(h0, h1, h2, h3, h4, h5, h6, h7)
+        let a = 0xc1059ed8u32;
+        let b = 0x367cd507u32;
+        let c = 0x3070dd17u32;
+        let d = 0xf70e5939u32;
+        let f = 0xffc00b31u32;
+        let e = 0x68581511u32;
+        let g = 0x64f98fa7u32;
+        let h = 0xbefa4fa4u32;
+        SHA256State(a, b, c, d, f, e, g, h)
     }
 
     fn step(&self, (k, w): (u32, u32)) -> Self {
