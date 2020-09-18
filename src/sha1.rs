@@ -8,12 +8,12 @@ type SHA1Function = fn(u32, u32, u32) -> u32;
 #[allow(clippy::many_single_char_names)]
 impl HashState<[u8; 20], (SHA1Function, u32, u32)> for SHA1State {
     fn new() -> SHA1State {
-        let h0 = 0x67452301u32;
-        let h1 = 0xefcdab89u32;
-        let h2 = 0x98badcfeu32;
-        let h3 = 0x10325476u32;
-        let h4 = 0xc3d2e1f0u32;
-        SHA1State(h0, h1, h2, h3, h4)
+        let a = 0x67452301u32;
+        let b = 0xefcdab89u32;
+        let c = 0x98badcfeu32;
+        let d = 0x10325476u32;
+        let e = 0xc3d2e1f0u32;
+        SHA1State(a, b, c, d, e)
     }
 
     fn step(&self, (f, k, w): (SHA1Function, u32, u32)) -> SHA1State {

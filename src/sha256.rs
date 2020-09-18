@@ -1,23 +1,11 @@
-use crate::padding;
+use crate::digest::{Digest512, HashState, Schedule512};
 
 #[derive(Clone)]
-struct SHA256State(u32, u32, u32, u32, u32, u32, u32, u32);
+pub struct SHA256State(u32, u32, u32, u32, u32, u32, u32, u32);
 
 impl SHA256State {
-    fn new() -> SHA256State {
-        let h0 = 0x6a09e667u32;
-        let h1 = 0xbb67ae85u32;
-        let h2 = 0x3c6ef372u32;
-        let h3 = 0xa54ff53au32;
-        let h4 = 0x510e527fu32;
-        let h5 = 0x9b05688cu32;
-        let h6 = 0x1f83d9abu32;
-        let h7 = 0x5be0cd19u32;
-        SHA256State(h0, h1, h2, h3, h4, h5, h6, h7)
-    }
-
-    fn step(self, k: u32, w: u32) -> SHA256State {
-        let SHA256State(a, b, c, d, e, f, g, h) = self;
+    pub fn step(&self, (k, w): (u32, u32)) -> SHA256State {
+        let SHA256State(a, b, c, d, e, f, g, h) = *self;
 
         fn ch(x: u32, y: u32, z: u32) -> u32 {
             (x & y) ^ (!x & z)
@@ -58,6 +46,28 @@ impl SHA256State {
             h.wrapping_add(h_o),
         )
     }
+}
+
+impl HashState<[u8; 32], (u32, u32)> for SHA256State {
+    fn new() -> SHA256State {
+        let a = 0x6a09e667u32;
+        let b = 0xbb67ae85u32;
+        let c = 0x3c6ef372u32;
+        let d = 0xa54ff53au32;
+        let e = 0x510e527fu32;
+        let f = 0x9b05688cu32;
+        let g = 0x1f83d9abu32;
+        let h = 0x5be0cd19u32;
+        SHA256State(a, b, c, d, e, f, g, h)
+    }
+
+    fn step(&self, (k, w): (u32, u32)) -> Self {
+        self.step((k, w))
+    }
+
+    fn merge(&self, other: &Self) -> Self {
+        self.merge(other)
+    }
 
     fn to_bytes(&self) -> [u8; 32] {
         let mut bytes = [0; 32];
@@ -69,18 +79,7 @@ impl SHA256State {
     }
 }
 
-impl Default for SHA256State {
-    fn default() -> SHA256State {
-        SHA256State::new()
-    }
-}
-
-trait SHA224State {
-    fn new() -> Self;
-    fn to_bytes(&self) -> [u8; 28];
-}
-
-impl SHA224State for SHA256State {
+impl HashState<[u8; 28], (u32, u32)> for SHA256State {
     fn new() -> SHA256State {
         let h0 = 0xc1059ed8u32;
         let h1 = 0x367cd507u32;
@@ -93,6 +92,14 @@ impl SHA224State for SHA256State {
         SHA256State(h0, h1, h2, h3, h4, h5, h6, h7)
     }
 
+    fn step(&self, (k, w): (u32, u32)) -> Self {
+        self.step((k, w))
+    }
+
+    fn merge(&self, other: &Self) -> Self {
+        self.merge(other)
+    }
+
     fn to_bytes(&self) -> [u8; 28] {
         let mut bytes = [0u8; 28];
         let SHA256State(a, b, c, d, e, f, g, _) = *self;
@@ -103,7 +110,7 @@ impl SHA224State for SHA256State {
     }
 }
 
-struct SHA256Schedule {
+pub struct SHA256Schedule {
     w: [u32; 64],
     t: usize,
 }
@@ -175,7 +182,9 @@ impl SHA256Schedule {
         0xbef9a3f7u32,
         0xc67178f2u32,
     ];
+}
 
+impl Schedule512 for SHA256Schedule {
     fn new(block: &[u8; 64]) -> SHA256Schedule {
         let mut w = [0u32; 64];
 
@@ -213,26 +222,11 @@ impl Iterator for SHA256Schedule {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.t < 64 {
-            Some((SHA256Schedule::K[self.t], self.w[self.t]))
+            Some((Self::K[self.t], self.w[self.t]))
         } else {
             None
         }
     }
 }
 
-impl padding::BlockConsumer512<[u8; 32]> for SHA256State {
-    fn handle(&mut self, block: &[u8; 64]) {
-        let step = SHA256Schedule::new(block).fold(self.clone(), |state, (k, w)| state.step(k, w));
-        *self = self.merge(&step);
-    }
-
-    fn finalize(self) -> [u8; 32] {
-        self.to_bytes()
-    }
-
-    fn finalize_reset(&mut self) -> [u8; 32] {
-        let bytes = self.to_bytes();
-        *self = SHA256State::new();
-        bytes
-    }
-}
+pub type SHA256Digest = Digest512<[u8; 20], SHA256Schedule, SHA256State>;
