@@ -69,13 +69,13 @@ schedule_trait!(Schedule512, 64);
 hash_block_consumer_impl!(HashBlockConsumer512, Schedule512, 64);
 
 pub struct Digest512<R, Sch: Schedule512, St: HashState<R, Sch::Item>> {
-    padder: padding::StreamingPadder512<R, HashBlockConsumer512<R, Sch, St>>,
+    padder: padding::Padder512<R, HashBlockConsumer512<R, Sch, St>>,
 }
 
 impl<R, Sch: Schedule512, St: HashState<R, Sch::Item>> Digest<R> for Digest512<R, Sch, St> {
     fn new() -> Self {
         Self {
-            padder: padding::StreamingPadder512::new(HashBlockConsumer512::<R, Sch, St>::new()),
+            padder: padding::Padder512::new(HashBlockConsumer512::<R, Sch, St>::new()),
         }
     }
 
