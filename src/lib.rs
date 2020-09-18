@@ -8,4 +8,4 @@ mod test;
 
 pub use digest::Digest;
 pub use sha1::SHA1Digest;
-pub use sha256::SHA256Digest;
+pub use sha256::{SHA224Digest, SHA256Digest};

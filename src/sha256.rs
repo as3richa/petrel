@@ -3,6 +3,7 @@ use crate::digest::{Digest512, HashState, Schedule512};
 #[derive(Clone)]
 pub struct SHA256State(u32, u32, u32, u32, u32, u32, u32, u32);
 
+#[allow(clippy::many_single_char_names)]
 impl SHA256State {
     pub fn step(&self, (k, w): (u32, u32)) -> SHA256State {
         let SHA256State(a, b, c, d, e, f, g, h) = *self;
@@ -28,7 +29,7 @@ impl SHA256State {
             .wrapping_add(ch(e, f, g))
             .wrapping_add(k)
             .wrapping_add(w);
-        let t2 = big_sigma_0(a) + maj(a, b, c);
+        let t2 = big_sigma_0(a).wrapping_add(maj(a, b, c));
         SHA256State(t1.wrapping_add(t2), a, b, c, d.wrapping_add(t1), e, f, g)
     }
 
@@ -48,6 +49,7 @@ impl SHA256State {
     }
 }
 
+#[allow(clippy::many_single_char_names)]
 impl HashState<[u8; 32], (u32, u32)> for SHA256State {
     fn new() -> SHA256State {
         let a = 0x6a09e667u32;
@@ -79,6 +81,7 @@ impl HashState<[u8; 32], (u32, u32)> for SHA256State {
     }
 }
 
+#[allow(clippy::many_single_char_names)]
 impl HashState<[u8; 28], (u32, u32)> for SHA256State {
     fn new() -> SHA256State {
         let h0 = 0xc1059ed8u32;
@@ -222,11 +225,14 @@ impl Iterator for SHA256Schedule {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.t < 64 {
-            Some((Self::K[self.t], self.w[self.t]))
+            let result = Some((Self::K[self.t], self.w[self.t]));
+            self.t += 1;
+            result
         } else {
             None
         }
     }
 }
 
-pub type SHA256Digest = Digest512<[u8; 20], SHA256Schedule, SHA256State>;
+pub type SHA256Digest = Digest512<[u8; 32], SHA256Schedule, SHA256State>;
+pub type SHA224Digest = Digest512<[u8; 28], SHA256Schedule, SHA256State>;
