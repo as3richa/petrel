@@ -116,6 +116,11 @@ macro_rules! streaming_padder_impl {
                 self.len += bytes.len() as $counter_type;
             }
 
+            pub fn chain(mut self, bytes: &[u8]) -> Self {
+                self.feed(bytes);
+                self
+            }
+
             pub fn finalize(mut self) -> R {
                 self.handle_final_blocks();
                 self.consumer.finalize()

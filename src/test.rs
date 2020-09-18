@@ -2,6 +2,7 @@
 mod test {
     mod sha1 {
         use crate::sha1;
+        use crate::Digest;
 
         fn assert_matches(bytes: [u8; 20], hex_str: &str) {
             assert!(hex_str.len() == 40);
