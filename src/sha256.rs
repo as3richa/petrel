@@ -188,7 +188,7 @@ impl SHA256Schedule {
 }
 
 impl Schedule512 for SHA256Schedule {
-    fn new(block: &[u8; 64]) -> SHA256Schedule {
+    fn new(block: &[u8; 64]) -> Self {
         let mut w = [0u32; 64];
 
         for (i, w) in w[0..16].iter_mut().enumerate() {
@@ -201,11 +201,11 @@ impl Schedule512 for SHA256Schedule {
             ]);
         }
 
-        pub fn sigma_0(x: u32) -> u32 {
+        fn sigma_0(x: u32) -> u32 {
             x.rotate_right(7) ^ x.rotate_right(18) ^ (x >> 3)
         }
 
-        pub fn sigma_1(x: u32) -> u32 {
+        fn sigma_1(x: u32) -> u32 {
             x.rotate_right(17) ^ x.rotate_right(19) ^ (x >> 10)
         }
 
@@ -216,7 +216,7 @@ impl Schedule512 for SHA256Schedule {
                 .wrapping_add(w[i - 16]);
         }
 
-        SHA256Schedule { w, t: 0 }
+        Self { w, t: 0 }
     }
 }
 
