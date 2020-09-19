@@ -83,7 +83,7 @@ impl HashState<[u8; 64], (u64, u64)> for SHA512State {
 #[allow(clippy::many_single_char_names)]
 impl HashState<[u8; 48], (u64, u64)> for SHA512State {
     fn new() -> Self {
-        let a = 0xcbbb9d6dc1059ed8u64;
+        let a = 0xcbbb9d5dc1059ed8u64;
         let b = 0x629a292a367cd507u64;
         let c = 0x9159015a3070dd17u64;
         let d = 0x152fecd8f70e5939u64;
@@ -293,7 +293,7 @@ impl Schedule1024 for SHA512Schedule {
             x.rotate_right(19) ^ x.rotate_right(61) ^ (x >> 6)
         }
 
-        for i in 16..64 {
+        for i in 16..80 {
             w[i] = sigma_1(w[i - 2])
                 .wrapping_add(w[i - 7])
                 .wrapping_add(sigma_0(w[i - 15]))
@@ -309,7 +309,9 @@ impl Iterator for SHA512Schedule {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.t < 80 {
-            Some((Self::K[self.t], self.w[self.t]))
+            let item = (Self::K[self.t], self.w[self.t]);
+            self.t += 1;
+            Some(item)
         } else {
             None
         }

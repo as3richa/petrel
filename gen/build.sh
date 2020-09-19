@@ -11,4 +11,4 @@ $CC -o words $CFLAGS words.c $LIBS
 ./words <words.list >data/word-hashes.list
 
 $CC -o blobs $CFLAGS blobs.c $LIBS
-./blobs data >data/blobs.list
+./blobs data >data/blob-hashes.list
